@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles for cross-browser compatibility */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: Montserrat, Roboto, system-ui, -apple-system, sans-serif;
+  background: #F5F7FA;
+  color: #1A1A1A;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(20, 136, 216, 0.12), transparent 30%),
+    linear-gradient(180deg, #F5F7FA 0%, #ffffff 100%);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F5F7FA;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1488D8;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00C2FF;
+}
+
+/* Form input focus states */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #1488D8;
+  outline-offset: 2px;
+}
+
+/* Smooth transitions for interactive elements */
+button,
+a,
+input,
+select,
+textarea {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Responsive container utility */
+@layer utilities {
+  .container-responsive {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .brand-gradient {
+    background: linear-gradient(135deg, #1488D8 0%, #030391 100%);
+  }
+
+  .brand-gradient-soft {
+    background: linear-gradient(135deg, rgba(20, 136, 216, 0.12) 0%, rgba(3, 3, 145, 0.12) 100%);
+  }
+}
