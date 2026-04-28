@@ -1,0 +1,39 @@
+{
+  "description": "Sample quad mesh: 2×2 grid on domain [0,10]×[0,10]",
+  "parameters": {
+    "p": 2,
+    "m": 2,
+    "d1": 10,
+    "d2": 10
+  },
+  "statistics": {
+    "nodeCount": 9,
+    "edgeCount": 12,
+    "edgeFormula": "p*(m+1) + (p+1)*m = 2*3 + 3*2 = 6 horizontal + 6 vertical edges"
+  },
+  "nodes": [
+    [0, 0],
+    [5, 0],
+    [10, 0],
+    [0, 5],
+    [5, 5],
+    [10, 5],
+    [0, 10],
+    [5, 10],
+    [10, 10]
+  ],
+  "edges": [
+    [0, 1],
+    [1, 2],
+    [3, 4],
+    [4, 5],
+    [6, 7],
+    [7, 8],
+    [0, 3],
+    [3, 6],
+    [1, 4],
+    [4, 7],
+    [2, 5],
+    [5, 8]
+  ]
+}

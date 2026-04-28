@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { MeshVisualization } from '../components/MeshVisualization';
 
 type MatrixPage = 'displacements' | 'stresses' | 'reactions';
 
@@ -70,6 +71,17 @@ function Results() {
               {state.warnings.map((warning) => <p key={warning}>{warning}</p>)}
             </div>
           )}
+        </div>
+
+        {/* Mesh Visualization Section */}
+        <div className="rounded-3xl bg-white border border-black/5 shadow-[0_20px_60px_rgba(3,3,145,0.12)] p-6 sm:p-8">
+          <div className="mb-4">
+            <p className="text-sm text-[#1A1A1A]/60">Mesh Visualization</p>
+            <h2 className="text-xl sm:text-2xl font-bold text-[#1A1A1A]">FEA Mesh</h2>
+          </div>
+          <div className="h-96 rounded-2xl border border-[#1488D8]/15 overflow-hidden">
+            <MeshVisualization />
+          </div>
         </div>
 
         <div className="rounded-3xl bg-white border border-black/5 shadow-[0_20px_60px_rgba(3,3,145,0.12)] p-6 sm:p-8">
