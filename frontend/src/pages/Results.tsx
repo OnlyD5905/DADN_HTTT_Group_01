@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { MeshVisualization } from '../components/MeshVisualization';
+import { generateQuadMesh } from '../utils/meshGenerator';
 
 type MatrixPage = 'displacements' | 'stresses' | 'reactions';
 
@@ -22,6 +23,11 @@ function Results() {
   const state = (location.state ?? {}) as ResultsState;
   const [matrixPage, setMatrixPage] = useState<MatrixPage>('displacements');
   const [pageIndex, setPageIndex] = useState(0);
+
+  // Generate mock mesh with p=2, m=2 (9 nodes, 12 edges)
+  const mesh = useMemo(() => {
+    return generateQuadMesh(2, 2, 10, 10);
+  }, []);
 
   const data = useMemo(() => {
     const maps: Record<MatrixPage, Record<string, number[]>> = {
@@ -80,7 +86,7 @@ function Results() {
             <h2 className="text-xl sm:text-2xl font-bold text-[#1A1A1A]">FEA Mesh</h2>
           </div>
           <div className="h-96 rounded-2xl border border-[#1488D8]/15 overflow-hidden">
-            <MeshVisualization />
+            <MeshVisualization mesh={mesh} />
           </div>
         </div>
 
