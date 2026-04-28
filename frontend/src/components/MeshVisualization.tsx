@@ -2,26 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three-orbitcontrols-ts';
 import type { Mesh } from '../utils/meshGenerator';
+import { BoundaryConditionMenu } from './BoundaryConditionMenu';
 
-/**
- * MeshVisualization Component
- *
- * Renders FEA mesh data using Three.js with orthographic projection.
- * Displays nodes as a blue point cloud and edges as gray line segments.
- *
- * Props:
- * - mesh: Optional mesh data { nodes: [number,number][], edges: [number,number][] }
- *   Renders blue points for nodes and gray lines for edges
- *
- * Features:
- * - Orthographic camera for consistent 2D rendering
- * - OrbitControls for interactive pan/zoom/rotate
- * - Efficient BufferGeometry for point cloud and line rendering
- * - Automatic canvas resizing
- * - Proper resource cleanup on unmount
- * - Updates geometry when mesh prop changes
- * - Auto-fit mesh to viewport on load
- */
 interface MeshVisualizationProps {
   /** Mesh data containing nodes and edges */
   mesh?: Mesh;
@@ -39,6 +21,12 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
   const [selectedNode, setSelectedNode] = useState<number | null>(null);
   const nodePointsRef = useRef<THREE.Points | null>(null);
   const edgeLineRef = useRef<THREE.LineSegments | null>(null);
+  const [webglError, setWebglError] = useState<string | null>(null);
+  
+  // Context menu state
+  const [contextMenuVisible, setContextMenuVisible] = useState(false);
+  const [contextMenuX, setContextMenuX] = useState(0);
+  const [contextMenuY, setContextMenuY] = useState(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -66,13 +54,26 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     cameraRef.current = camera;
 
     // Renderer setup
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    rendererRef.current = renderer;
+    try {
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      
+      // Check if WebGL context was created successfully
+      if (!renderer || !renderer.domElement) {
+        throw new Error('Failed to create WebGL renderer');
+      }
+      
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      rendererRef.current = renderer;
 
-    // Append canvas to container
-    containerRef.current.appendChild(renderer.domElement);
+      // Append canvas to container
+      containerRef.current.appendChild(renderer.domElement);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('WebGL initialization failed:', errorMessage);
+      setWebglError("Your browser doesn't support 3D mesh visualization. Please try a different browser.");
+      return;
+    }
 
     // Create mesh group to hold nodes and edges (for easy updates)
     const meshGroup = new THREE.Group();
@@ -80,7 +81,7 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     scene.add(meshGroup);
 
     // Initialize OrbitControls
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, rendererRef.current.domElement);
     controlsRef.current = controls;
 
     // Initialize Raycaster and mouse vector
@@ -109,7 +110,8 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
       if (!containerRef.current || !raycasterRef.current || !mouseRef.current || !cameraRef.current || !nodePointsRef.current) return;
 
       // Get canvas bounding rect
-      const canvas = renderer.domElement;
+      const canvas = rendererRef.current?.domElement;
+      if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
 
       // Normalize mouse coordinates to [-1, 1] NDC (Normalized Device Coordinates)
@@ -140,7 +142,25 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
       }
     };
 
-    renderer.domElement.addEventListener('click', handleCanvasClick);
+    rendererRef.current.domElement.addEventListener('click', handleCanvasClick);
+
+    // Handle right-click for context menu (only if a node is selected)
+    const handleCanvasContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+
+      // Only show menu if a node is selected
+      if (selectedNode === null) return;
+
+      // Get canvas bounding rect
+      const canvas = rendererRef.current?.domElement;
+      if (!canvas) return;
+
+      setContextMenuX(event.clientX);
+      setContextMenuY(event.clientY);
+      setContextMenuVisible(true);
+    };
+
+    rendererRef.current.domElement.addEventListener('contextmenu', handleCanvasContextMenu);
 
     // Handle window resize
     const handleResize = () => {
@@ -170,7 +190,8 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     // Cleanup function
     return () => {
       window.removeEventListener('resize', handleResize);
-      renderer.domElement.removeEventListener('click', handleCanvasClick);
+      rendererRef.current?.domElement.removeEventListener('click', handleCanvasClick);
+      rendererRef.current?.domElement.removeEventListener('contextmenu', handleCanvasContextMenu);
 
       // Dispose of OrbitControls
       if (controlsRef.current) {
@@ -384,11 +405,38 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     }
   }, [selectedNode, mesh]);
 
+  if (webglError) {
+    return (
+      <div className="w-full h-full bg-white border border-gray-200 rounded-lg flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="text-yellow-600 text-5xl mb-4">⚠️</div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">3D Visualization Not Available</h2>
+          <p className="text-gray-600">{webglError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const handleBCSelect = (bc: { nodeID: number; bcType: 'FixedSupport' | 'PointLoad' }) => {
+    // Store BC selection in component state (Position 4-5 will handle backend integration)
+    console.log('BC Selected:', bc);
+  };
+
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full bg-white border border-gray-200 rounded-lg"
-      data-testid="mesh-visualization-container"
-    />
+    <div>
+      <div
+        ref={containerRef}
+        className="w-full h-full bg-white border border-gray-200 rounded-lg"
+        data-testid="mesh-visualization-container"
+      />
+      <BoundaryConditionMenu
+        selectedNode={selectedNode}
+        onBCSelect={handleBCSelect}
+        visible={contextMenuVisible}
+        x={contextMenuX}
+        y={contextMenuY}
+        onClose={() => setContextMenuVisible(false)}
+      />
+    </div>
   );
 }
