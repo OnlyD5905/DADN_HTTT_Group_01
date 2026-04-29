@@ -3,12 +3,28 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three-orbitcontrols-ts';
 import type { Mesh } from '../utils/meshGenerator';
 import { BoundaryConditionMenu } from './BoundaryConditionMenu';
+import { MagnifierZoom } from './MagnifierZoom';
 
 interface MeshVisualizationProps {
   /** Mesh data containing nodes and edges */
   mesh?: Mesh;
 }
 
+/**
+ * MeshVisualization Component
+ * 
+ * Main visualization component for displaying FEA mesh results using Three.js.
+ * Renders nodes as points and edges as line segments in a 2D orthographic view.
+ * Supports node selection (single and multi-select with Ctrl/Cmd) and context menu interactions.
+ * 
+ * @component
+ * @example
+ * ```tsx
+ * import { generateQuadMesh } from '../utils/meshGenerator';
+ * const mesh = generateQuadMesh(10, 10, 100, 100);
+ * <MeshVisualization mesh={mesh} />
+ * ```
+ */
 export function MeshVisualization({ mesh }: MeshVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -18,7 +34,7 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
   const controlsRef = useRef<OrbitControls | null>(null);
   const raycasterRef = useRef<THREE.Raycaster | null>(null);
   const mouseRef = useRef<THREE.Vector2 | null>(null);
-  const [selectedNode, setSelectedNode] = useState<number | null>(null);
+  const [selectedNodes, setSelectedNodes] = useState<number[]>([]);
   const nodePointsRef = useRef<THREE.Points | null>(null);
   const edgeLineRef = useRef<THREE.LineSegments | null>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
@@ -27,6 +43,10 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [contextMenuX, setContextMenuX] = useState(0);
   const [contextMenuY, setContextMenuY] = useState(0);
+
+  // Magnifier zoom threshold auto-trigger
+  const [magnifierVisible, setMagnifierVisible] = useState(false);
+  const MAGNIFIER_ZOOM_THRESHOLD = 3;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -133,23 +153,39 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
         const clickedNodeIndex = intersect.index;
 
         if (clickedNodeIndex !== undefined) {
-          // Toggle selection: if clicking same node, deselect; otherwise select new node
-          setSelectedNode((prevSelected) => (prevSelected === clickedNodeIndex ? null : clickedNodeIndex));
+          // Check if Ctrl key is held (Cmd on Mac)
+          const isMultiSelect = event.ctrlKey || event.metaKey;
+          
+          if (isMultiSelect) {
+            // Ctrl+click: add/remove from selection array
+            setSelectedNodes((prevSelected) => {
+              if (prevSelected.includes(clickedNodeIndex)) {
+                // Remove from selection (toggle off)
+                return prevSelected.filter(n => n !== clickedNodeIndex);
+              } else {
+                // Add to selection
+                return [...prevSelected, clickedNodeIndex];
+              }
+            });
+          } else {
+            // Regular click: single select (replace entire selection)
+            setSelectedNodes([clickedNodeIndex]);
+          }
         }
       } else {
-        // Clicking on empty space deselects current selection
-        setSelectedNode(null);
+        // Clicking on empty space deselects all
+        setSelectedNodes([]);
       }
     };
 
     rendererRef.current.domElement.addEventListener('click', handleCanvasClick);
 
-    // Handle right-click for context menu (only if a node is selected)
+    // Handle right-click for context menu (only if at least one node is selected)
     const handleCanvasContextMenu = (event: MouseEvent) => {
       event.preventDefault();
 
-      // Only show menu if a node is selected
-      if (selectedNode === null) return;
+      // Only show menu if at least one node is selected
+      if (selectedNodes.length === 0) return;
 
       // Get canvas bounding rect
       const canvas = rendererRef.current?.domElement;
@@ -187,11 +223,37 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
 
     window.addEventListener('resize', handleResize);
 
+    // Animation loop for continuous rendering and zoom monitoring
+    let animationFrameId: number;
+    const render = () => {
+      if (!rendererRef.current || !sceneRef.current || !cameraRef.current || !controlsRef.current) return;
+
+      // Update OrbitControls (handles damping)
+      controlsRef.current.update();
+
+      // Monitor zoom level for magnifier visibility
+      const camera = controlsRef.current.object as THREE.OrthographicCamera;
+      const currentZoom = camera.zoom || 1;
+      setMagnifierVisible(currentZoom >= MAGNIFIER_ZOOM_THRESHOLD);
+
+      // Render scene
+      rendererRef.current.render(sceneRef.current, cameraRef.current);
+
+      // Continue animation loop
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    // Start animation loop
+    animationFrameId = requestAnimationFrame(render);
+
     // Cleanup function
     return () => {
       window.removeEventListener('resize', handleResize);
       rendererRef.current?.domElement.removeEventListener('click', handleCanvasClick);
       rendererRef.current?.domElement.removeEventListener('contextmenu', handleCanvasContextMenu);
+
+      // Cancel animation frame
+      cancelAnimationFrame(animationFrameId);
 
       // Dispose of OrbitControls
       if (controlsRef.current) {
@@ -344,11 +406,13 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
       colorArray[i * 3 + 2] = 1;    // B: 255/255 = 1
     }
 
-    // Highlight selected node in red/yellow
-    if (selectedNode !== null && selectedNode < mesh.nodes.length) {
-      colorArray[selectedNode * 3] = 1;      // R: 255/255 = 1 (red)
-      colorArray[selectedNode * 3 + 1] = 0.84;  // G: 215/255 ≈ 0.84 (make it orange/yellow-red)
-      colorArray[selectedNode * 3 + 2] = 0;    // B: 0
+    // Highlight all selected nodes in orange-red
+    for (const nodeIdx of selectedNodes) {
+      if (nodeIdx < mesh.nodes.length) {
+        colorArray[nodeIdx * 3] = 1;      // R: 255/255 = 1 (red)
+        colorArray[nodeIdx * 3 + 1] = 0.84;  // G: 215/255 ≈ 0.84 (make it orange/yellow-red)
+        colorArray[nodeIdx * 3 + 2] = 0;    // B: 0
+      }
     }
 
     colors.needsUpdate = true;
@@ -366,19 +430,19 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
         edgeColorArray[i + 2] = 0.6; // B: gray
       }
 
-      // Highlight connected edges if a node is selected
-      if (selectedNode !== null) {
+      // Highlight connected edges for any selected node
+      if (selectedNodes.length > 0) {
         /**
-         * Find all edges connected to the selected node.
+         * Find all edges connected to ANY selected node.
          * For each edge [i, j] in the mesh:
-         * - If i == selectedNode or j == selectedNode, the edge is connected
+         * - If i or j is in selectedNodes, the edge is connected
          * Each edge has 2 vertices in the edge position/color arrays.
          * Edge e occupies vertices at indices (2*e) and (2*e + 1) in the arrays.
          */
         mesh.edges.forEach((edge, edgeIndex) => {
           const [nodeIdx1, nodeIdx2] = edge;
-          // Check if this edge is connected to the selected node
-          if (nodeIdx1 === selectedNode || nodeIdx2 === selectedNode) {
+          // Check if this edge is connected to ANY selected node
+          if (selectedNodes.includes(nodeIdx1) || selectedNodes.includes(nodeIdx2)) {
             // This edge is connected; highlight it in red
             const vertexIndex1 = edgeIndex * 2; // First vertex of this edge
             const vertexIndex2 = edgeIndex * 2 + 1; // Second vertex of this edge
@@ -403,7 +467,7 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     if (sceneRef.current && cameraRef.current && rendererRef.current) {
       rendererRef.current.render(sceneRef.current, cameraRef.current);
     }
-  }, [selectedNode, mesh]);
+  }, [selectedNodes, mesh]);
 
   if (webglError) {
     return (
@@ -417,9 +481,8 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     );
   }
 
-  const handleBCSelect = (bc: { nodeID: number; bcType: 'FixedSupport' | 'PointLoad' }) => {
+  const handleBCSelect = (_bc: { nodeID: number; bcType: 'FixedSupport' | 'PointLoad' }) => {
     // Store BC selection in component state (Position 4-5 will handle backend integration)
-    console.log('BC Selected:', bc);
   };
 
   return (
@@ -430,12 +493,18 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
         data-testid="mesh-visualization-container"
       />
       <BoundaryConditionMenu
-        selectedNode={selectedNode}
+        selectedNodes={selectedNodes}
         onBCSelect={handleBCSelect}
         visible={contextMenuVisible}
         x={contextMenuX}
         y={contextMenuY}
         onClose={() => setContextMenuVisible(false)}
+      />
+      <MagnifierZoom
+        mesh={mesh}
+        mainCamera={cameraRef.current!}
+        visible={magnifierVisible}
+        zoomFactor={4}
       />
     </div>
   );

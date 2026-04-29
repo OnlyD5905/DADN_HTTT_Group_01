@@ -7,16 +7,17 @@ import { useEffect, useRef } from 'react';
  * Displays "Fixed Support" and "Point Load" options.
  *
  * Props:
- * - selectedNode: Index of the selected node (null if no selection)
+ * - selectedNodes: Array of indices of selected nodes (empty if no selection)
  * - onBCSelect: Callback function when BC option is clicked
- *   Receives: { nodeID: number, bcType: 'FixedSupport' | 'PointLoad' }
+ *   Receives: { nodeID: number; bcType: 'FixedSupport' | 'PointLoad' }
+ *   Called once for each node in selectedNodes
  * - visible: Whether menu is currently visible
  * - x: X position of menu (from mouse event)
  * - y: Y position of menu (from mouse event)
  * - onClose: Callback to close the menu
  */
 interface BoundaryConditionMenuProps {
-  selectedNode: number | null;
+  selectedNodes: number[];
   onBCSelect: (bc: { nodeID: number; bcType: 'FixedSupport' | 'PointLoad' }) => void;
   visible: boolean;
   x: number;
@@ -24,8 +25,34 @@ interface BoundaryConditionMenuProps {
   onClose: () => void;
 }
 
+/**
+ * BoundaryConditionMenu Component
+ *
+ * Context menu for applying boundary conditions to selected nodes.
+ * Displays "Fixed Support" and "Point Load" options.
+ *
+ * @component
+ * @param {BoundaryConditionMenuProps} props - Component props
+ * @param {number[]} props.selectedNodes - Array of indices of selected nodes
+ * @param {Function} props.onBCSelect - Callback function when BC option is clicked
+ * @param {boolean} props.visible - Whether menu is currently visible
+ * @param {number} props.x - X position of menu (from mouse event)
+ * @param {number} props.y - Y position of menu (from mouse event)
+ * @param {Function} props.onClose - Callback to close the menu
+ * @example
+ * ```tsx
+ * <BoundaryConditionMenu
+ *   selectedNodes={[0, 1]}
+ *   onBCSelect={(bc) => console.log(bc)}
+ *   visible={true}
+ *   x={100}
+ *   y={100}
+ *   onClose={() => setVisible(false)}
+ * />
+ * ```
+ */
 export function BoundaryConditionMenu({
-  selectedNode,
+  selectedNodes,
   onBCSelect,
   visible,
   x,
@@ -50,12 +77,15 @@ export function BoundaryConditionMenu({
     }
   }, [visible, onClose]);
 
-  if (!visible || selectedNode === null) {
+  if (!visible || selectedNodes.length === 0) {
     return null;
   }
 
   const handleBCSelect = (bcType: 'FixedSupport' | 'PointLoad') => {
-    onBCSelect({ nodeID: selectedNode, bcType });
+    // Apply BC to all selected nodes
+    for (const nodeID of selectedNodes) {
+      onBCSelect({ nodeID, bcType });
+    }
     onClose();
   };
 
