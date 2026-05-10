@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { MeshVisualization } from '../components/MeshVisualization';
 import { generateQuadMesh } from '../utils/meshGenerator';
+import type { MeshAnnotation } from '../types/fea';
 
 type MatrixPage = 'displacements' | 'stresses' | 'reactions';
 
@@ -24,10 +25,23 @@ function Results() {
   const [matrixPage, setMatrixPage] = useState<MatrixPage>('displacements');
   const [pageIndex, setPageIndex] = useState(0);
 
-  // Generate mock mesh with p=2, m=2 (9 nodes, 12 edges)
+  // Generate mock mesh with p=4, m=4 (25 nodes, 40 edges) for better demo
   const mesh = useMemo(() => {
-    return generateQuadMesh(2, 2, 10, 10);
+    return generateQuadMesh(4, 4, 10, 10);
   }, []);
+
+  // Mock annotations demonstrating fixed supports and point loads
+  const annotations: MeshAnnotation[] = useMemo(() => [
+    // Fixed supports at bottom-left and bottom-right corners (triangle markers)
+    { nodeIndex: 0, type: 'fixed', direction: 'both' },   // Bottom-left
+    { nodeIndex: 4, type: 'fixed', direction: 'both' },   // Bottom-right
+    // Point loads at top edge (force arrows)
+    { nodeIndex: 20, type: 'load', magnitude: 100, direction: 'y' },   // Top-left
+    { nodeIndex: 22, type: 'load', magnitude: 150, direction: 'y' },   // Top-center
+    { nodeIndex: 24, type: 'load', magnitude: 100, direction: 'y' },   // Top-right
+    // Diagonal load
+    { nodeIndex: 12, type: 'load', magnitude: 120, direction: 45 },    // Center at 45°
+  ], []);
 
   const data = useMemo(() => {
     const maps: Record<MatrixPage, Record<string, number[]>> = {
@@ -86,7 +100,19 @@ function Results() {
             <h2 className="text-xl sm:text-2xl font-bold text-[#1A1A1A]">FEA Mesh</h2>
           </div>
           <div className="h-96 rounded-2xl border border-[#1488D8]/15 overflow-hidden">
-            <MeshVisualization mesh={mesh} />
+            <MeshVisualization mesh={mesh} annotations={annotations} />
+          </div>
+          {/* Annotation Legend */}
+          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-[#1A1A1A]/70">
+            <div className="flex items-center gap-2">
+              <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[10px] border-l-transparent border-r-transparent border-t-red-500"></div>
+              <span>Fixed Support (ngàm)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-0.5 bg-blue-600"></div>
+              <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[6px] border-l-transparent border-r-transparent border-b-blue-600"></div>
+              <span>Point Load (lực)</span>
+            </div>
           </div>
         </div>
 

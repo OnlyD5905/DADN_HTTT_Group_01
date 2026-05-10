@@ -39,3 +39,26 @@ export interface ValidationResult {
   isValid: boolean;
   errors: ValidationError[];
 }
+
+// Mesh Annotation Types for Visualization
+
+/** Represents a fixed support constraint on a node */
+export interface FixedSupport {
+  nodeIndex: number;
+  type: 'fixed';
+  /** Direction of constraint: 'x' | 'y' | 'both' */
+  direction: 'x' | 'y' | 'both';
+}
+
+/** Represents a point load applied to a node */
+export interface PointLoad {
+  nodeIndex: number;
+  type: 'load';
+  /** Load magnitude in Newtons */
+  magnitude: number;
+  /** Load direction: 'x' | 'y' | angle in degrees */
+  direction: 'x' | 'y' | number;
+}
+
+/** Union type for all mesh annotation types */
+export type MeshAnnotation = FixedSupport | PointLoad;

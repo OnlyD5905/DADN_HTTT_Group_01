@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three-orbitcontrols-ts';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Mesh } from '../utils/meshGenerator';
+import type { MeshAnnotation } from '../types/fea';
 import { BoundaryConditionMenu } from './BoundaryConditionMenu';
 import { MagnifierZoom } from './MagnifierZoom';
 
 interface MeshVisualizationProps {
   /** Mesh data containing nodes and edges */
   mesh?: Mesh;
+  /** Optional annotations to display (fixed supports, point loads, etc.) */
+  annotations?: MeshAnnotation[];
+  /** Enable magnifier zoom overlay (default: false) */
+  enableMagnifier?: boolean;
 }
 
 /**
@@ -25,7 +30,7 @@ interface MeshVisualizationProps {
  * <MeshVisualization mesh={mesh} />
  * ```
  */
-export function MeshVisualization({ mesh }: MeshVisualizationProps) {
+export function MeshVisualization({ mesh, annotations = [], enableMagnifier = false }: MeshVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -38,15 +43,23 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
   const nodePointsRef = useRef<THREE.Points | null>(null);
   const edgeLineRef = useRef<THREE.LineSegments | null>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
+
+  // Annotation refs for fixed supports and point loads
+  const annotationGroupRef = useRef<THREE.Group | null>(null);
   
   // Context menu state
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [contextMenuX, setContextMenuX] = useState(0);
   const [contextMenuY, setContextMenuY] = useState(0);
 
-  // Magnifier zoom threshold auto-trigger
-  const [magnifierVisible, setMagnifierVisible] = useState(false);
-  const MAGNIFIER_ZOOM_THRESHOLD = 3;
+  // Magnifier zoom visibility (controlled by prop, not auto-triggered)
+  const [magnifierVisible] = useState(enableMagnifier);
+
+  // Track mouse position for distinguishing clicks from drags
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Controls guide visibility
+  const [showControlsGuide, setShowControlsGuide] = useState(true);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -61,15 +74,8 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     sceneRef.current = scene;
 
     // Orthographic camera for 2D rendering
-    // Using a 1:1 pixel-to-unit ratio for consistent sizing
-    const camera = new THREE.OrthographicCamera(
-      -width / 2,
-      width / 2,
-      height / 2,
-      -height / 2,
-      0.1,
-      1000
-    );
+    // Start with default frustum - will be adjusted when mesh loads
+    const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 1000);
     camera.position.z = 10;
     cameraRef.current = camera;
 
@@ -109,18 +115,32 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     raycasterRef.current = raycaster;
     mouseRef.current = new THREE.Vector2();
 
-    // Configure OrbitControls for smooth interaction
+    // Configure OrbitControls for 2D mesh interaction
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.autoRotate = false;
     controls.enableZoom = true;
     controls.enablePan = true;
-    controls.enableRotate = true;
+    controls.enableRotate = false; // Lock to 2D - no rotation
     controls.autoRotateSpeed = 0;
 
     // Set reasonable interaction speeds
-    controls.rotateSpeed = 0.5;
-    controls.zoomSpeed = 1.2;
+    controls.rotateSpeed = 0;
+    controls.zoomSpeed = 1.0;
+
+    // Limit zoom to prevent getting lost or too close
+    controls.minZoom = 0.5;
+    controls.maxZoom = 10;
+
+    // Configure mouse buttons for 2D interaction:
+    // - Left click: pan (since rotation is disabled)
+    // - Right click: pan
+    // - Middle click: pan
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.PAN
+    };
 
     // Initial render (blank canvas)
     rendererRef.current.render(scene, camera);
@@ -128,6 +148,19 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     // Handle mouse click for node selection
     const handleCanvasClick = (event: MouseEvent) => {
       if (!containerRef.current || !raycasterRef.current || !mouseRef.current || !cameraRef.current || !nodePointsRef.current) return;
+
+      // Ignore if this was a drag (mouse moved significantly)
+      if (mouseDownPosRef.current) {
+        const dx = event.clientX - mouseDownPosRef.current.x;
+        const dy = event.clientY - mouseDownPosRef.current.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > 5) {
+          // This was a drag, not a click
+          mouseDownPosRef.current = null;
+          return;
+        }
+      }
+      mouseDownPosRef.current = null;
 
       // Get canvas bounding rect
       const canvas = rendererRef.current?.domElement;
@@ -198,27 +231,99 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
 
     rendererRef.current.domElement.addEventListener('contextmenu', handleCanvasContextMenu);
 
-    // Handle window resize
+    // Handle mouse move for cursor feedback (hover over nodes)
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!containerRef.current || !raycasterRef.current || !mouseRef.current || !cameraRef.current || !nodePointsRef.current) return;
+
+      const canvas = rendererRef.current?.domElement;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+
+      // Normalize mouse coordinates
+      mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      // Check for intersections with nodes
+      raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
+      const intersects = raycasterRef.current.intersectObject(nodePointsRef.current);
+
+      // Set cursor based on hover state
+      if (intersects.length > 0) {
+        canvas.style.cursor = 'pointer';
+      } else if (event.buttons === 1) {
+        // Left mouse button is held down (panning)
+        canvas.style.cursor = 'grabbing';
+      } else {
+        canvas.style.cursor = 'grab';
+      }
+    };
+
+    rendererRef.current.domElement.addEventListener('mousemove', handleMouseMove);
+
+    // Handle mouse down/up for grab cursor during pan
+    const handleMouseDown = (event: MouseEvent) => {
+      // Store mouse down position to distinguish clicks from drags
+      mouseDownPosRef.current = { x: event.clientX, y: event.clientY };
+      const canvas = rendererRef.current?.domElement;
+      if (canvas) canvas.style.cursor = 'grabbing';
+    };
+
+    const handleMouseUp = () => {
+      const canvas = rendererRef.current?.domElement;
+      if (canvas) canvas.style.cursor = 'grab';
+    };
+
+    rendererRef.current.domElement.addEventListener('mousedown', handleMouseDown);
+    rendererRef.current.domElement.addEventListener('mouseup', handleMouseUp);
+
+    // Handle wheel events to prevent page scroll and enable zoom
+    const handleWheel = (event: WheelEvent) => {
+      // Prevent default scroll behavior
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // OrbitControls will handle the zoom
+      return false;
+    };
+
+    rendererRef.current.domElement.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Handle window resize - maintain aspect ratio and current zoom
     const handleResize = () => {
-      if (!containerRef.current) return;
+      if (!containerRef.current || !cameraRef.current || !rendererRef.current) return;
 
       const newWidth = containerRef.current.clientWidth || 800;
       const newHeight = containerRef.current.clientHeight || 600;
 
-      // Update camera
-      if (cameraRef.current) {
-        cameraRef.current.left = -newWidth / 2;
-        cameraRef.current.right = newWidth / 2;
-        cameraRef.current.top = newHeight / 2;
-        cameraRef.current.bottom = -newHeight / 2;
-        cameraRef.current.updateProjectionMatrix();
+      // Get current view dimensions before resize
+      const currentWidth = cameraRef.current.right - cameraRef.current.left;
+      const currentHeight = cameraRef.current.top - cameraRef.current.bottom;
+      const aspect = newWidth / newHeight;
+
+      // Calculate new view dimensions maintaining aspect ratio
+      let viewWidth, viewHeight;
+      if (aspect > 1) {
+        // Wider than tall - fit width
+        viewWidth = currentWidth;
+        viewHeight = viewWidth / aspect;
+      } else {
+        // Taller than wide - fit height
+        viewHeight = currentHeight;
+        viewWidth = viewHeight * aspect;
       }
 
+      // Update camera frustum while maintaining center
+      const centerX = (cameraRef.current.left + cameraRef.current.right) / 2;
+      const centerY = (cameraRef.current.top + cameraRef.current.bottom) / 2;
+      cameraRef.current.left = centerX - viewWidth / 2;
+      cameraRef.current.right = centerX + viewWidth / 2;
+      cameraRef.current.top = centerY + viewHeight / 2;
+      cameraRef.current.bottom = centerY - viewHeight / 2;
+      cameraRef.current.updateProjectionMatrix();
+
       // Update renderer
-      if (rendererRef.current) {
-        rendererRef.current.setSize(newWidth, newHeight);
-        rendererRef.current.render(scene, camera);
-      }
+      rendererRef.current.setSize(newWidth, newHeight);
+      rendererRef.current.render(scene, camera);
     };
 
     window.addEventListener('resize', handleResize);
@@ -231,10 +336,7 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
       // Update OrbitControls (handles damping)
       controlsRef.current.update();
 
-      // Monitor zoom level for magnifier visibility
-      const camera = controlsRef.current.object as THREE.OrthographicCamera;
-      const currentZoom = camera.zoom || 1;
-      setMagnifierVisible(currentZoom >= MAGNIFIER_ZOOM_THRESHOLD);
+      // Magnifier visibility is controlled by prop, not auto-triggered
 
       // Render scene
       rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -251,6 +353,10 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
       window.removeEventListener('resize', handleResize);
       rendererRef.current?.domElement.removeEventListener('click', handleCanvasClick);
       rendererRef.current?.domElement.removeEventListener('contextmenu', handleCanvasContextMenu);
+      rendererRef.current?.domElement.removeEventListener('mousemove', handleMouseMove);
+      rendererRef.current?.domElement.removeEventListener('mousedown', handleMouseDown);
+      rendererRef.current?.domElement.removeEventListener('mouseup', handleMouseUp);
+      rendererRef.current?.domElement.removeEventListener('wheel', handleWheel);
 
       // Cancel animation frame
       cancelAnimationFrame(animationFrameId);
@@ -362,21 +468,40 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     }
 
     // Auto-fit mesh to viewport (first load)
-    if (meshGroupRef.current && cameraRef.current && controlsRef.current) {
+    if (meshGroupRef.current && cameraRef.current && controlsRef.current && containerRef.current) {
       // Calculate bounding box
       const bbox = new THREE.Box3().setFromObject(meshGroupRef.current);
       const center = bbox.getCenter(new THREE.Vector3());
       const size = bbox.getSize(new THREE.Vector3());
 
-      // Update camera to fit mesh
-      const maxDim = Math.max(size.x, size.y);
+      // Get container aspect ratio
+      const containerWidth = containerRef.current.clientWidth || 800;
+      const containerHeight = containerRef.current.clientHeight || 600;
+      const aspect = containerWidth / containerHeight;
 
-      // For orthographic camera, adjust zoom
-      if (maxDim > 0) {
-        cameraRef.current.left = -maxDim / 2;
-        cameraRef.current.right = maxDim / 2;
-        cameraRef.current.top = maxDim / 2;
-        cameraRef.current.bottom = -maxDim / 2;
+      // Add padding around the mesh (20% margin)
+      const padding = 1.2;
+      const meshWidth = size.x * padding;
+      const meshHeight = size.y * padding;
+
+      // Calculate view dimensions that fit the mesh while maintaining aspect ratio
+      let viewWidth, viewHeight;
+      if (aspect > meshWidth / meshHeight) {
+        // Container is wider than mesh - fit to height
+        viewHeight = meshHeight;
+        viewWidth = viewHeight * aspect;
+      } else {
+        // Container is taller than mesh - fit to width
+        viewWidth = meshWidth;
+        viewHeight = viewWidth / aspect;
+      }
+
+      // For orthographic camera, set frustum to fit mesh with padding
+      if (viewWidth > 0 && viewHeight > 0) {
+        cameraRef.current.left = center.x - viewWidth / 2;
+        cameraRef.current.right = center.x + viewWidth / 2;
+        cameraRef.current.top = center.y + viewHeight / 2;
+        cameraRef.current.bottom = center.y - viewHeight / 2;
         cameraRef.current.updateProjectionMatrix();
       }
 
@@ -469,6 +594,144 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
     }
   }, [selectedNodes, mesh]);
 
+  // Render annotations (fixed supports and point loads)
+  useEffect(() => {
+    if (!mesh || !sceneRef.current || !meshGroupRef.current) return;
+
+    // Clear previous annotations
+    if (annotationGroupRef.current) {
+      meshGroupRef.current.remove(annotationGroupRef.current);
+      annotationGroupRef.current.clear();
+    }
+
+    // Create new annotation group
+    const annotationGroup = new THREE.Group();
+    annotationGroupRef.current = annotationGroup;
+
+    // Calculate mesh scale for sizing annotations proportionally
+    const bbox = new THREE.Box3();
+    mesh.nodes.forEach((node) => {
+      bbox.expandByPoint(new THREE.Vector3(node[0], node[1], 0));
+    });
+    const meshSize = bbox.getSize(new THREE.Vector3());
+    const avgMeshDim = Math.max(meshSize.x, meshSize.y);
+    const baseSize = avgMeshDim * 0.03; // Scale annotations relative to mesh size
+
+    annotations.forEach((annotation) => {
+      const node = mesh.nodes[annotation.nodeIndex];
+      if (!node) return;
+
+      const [x, y] = node;
+
+      if (annotation.type === 'fixed') {
+        // Create triangle marker (ngàm) for fixed support
+        const triangleShape = new THREE.Shape();
+        const size = baseSize * 1.5;
+
+        // Triangle pointing down from the node
+        triangleShape.moveTo(x - size, y + size * 0.5);
+        triangleShape.lineTo(x + size, y + size * 0.5);
+        triangleShape.lineTo(x, y - size);
+        triangleShape.closePath();
+
+        const triangleGeometry = new THREE.ShapeGeometry(triangleShape);
+        const triangleMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff0000, // Red for fixed support
+          side: THREE.DoubleSide,
+        });
+        const triangle = new THREE.Mesh(triangleGeometry, triangleMaterial);
+        triangle.position.z = 1; // Slightly above mesh
+        annotationGroup.add(triangle);
+
+        // Add small ground line beneath triangle
+        const groundLineGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(x - size * 1.2, y - size, 1),
+          new THREE.Vector3(x + size * 1.2, y - size, 1),
+        ]);
+        const groundLineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+        const groundLine = new THREE.Line(groundLineGeometry, groundLineMaterial);
+        annotationGroup.add(groundLine);
+      } else if (annotation.type === 'load') {
+        // Create force arrow (lực) for point load
+        const magnitude = annotation.magnitude;
+        const direction = annotation.direction;
+
+        // Determine arrow direction vector
+        let dx = 0, dy = 0;
+        if (direction === 'x') {
+          dx = magnitude > 0 ? 1 : -1;
+        } else if (direction === 'y') {
+          dy = magnitude > 0 ? 1 : -1;
+        } else if (typeof direction === 'number') {
+          // Direction is an angle in degrees
+          const angleRad = (direction * Math.PI) / 180;
+          dx = Math.cos(angleRad);
+          dy = Math.sin(angleRad);
+        }
+
+        // Normalize and scale
+        const length = baseSize * 3 * Math.min(Math.abs(magnitude) / 100 + 1, 3);
+        dx *= length;
+        dy *= length;
+
+        // Arrow shaft
+        const shaftGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(x, y, 1),
+          new THREE.Vector3(x + dx, y + dy, 1),
+        ]);
+        const arrowMaterial = new THREE.LineBasicMaterial({ color: 0x0066ff, linewidth: 3 });
+        const shaft = new THREE.Line(shaftGeometry, arrowMaterial);
+        annotationGroup.add(shaft);
+
+        // Arrow head (triangle)
+        const headSize = baseSize * 0.8;
+        const headAngle = Math.atan2(dy, dx);
+        const headShape = new THREE.Shape();
+
+        // Triangle pointing in arrow direction
+        const tipX = x + dx;
+        const tipY = y + dy;
+        const backAngle1 = headAngle + Math.PI * 0.85;
+        const backAngle2 = headAngle - Math.PI * 0.85;
+
+        headShape.moveTo(tipX, tipY);
+        headShape.lineTo(
+          tipX + headSize * Math.cos(backAngle1),
+          tipY + headSize * Math.sin(backAngle1)
+        );
+        headShape.lineTo(
+          tipX + headSize * Math.cos(backAngle2),
+          tipY + headSize * Math.sin(backAngle2)
+        );
+        headShape.closePath();
+
+        const headGeometry = new THREE.ShapeGeometry(headShape);
+        const headMaterial = new THREE.MeshBasicMaterial({
+          color: 0x0066ff,
+          side: THREE.DoubleSide,
+        });
+        const head = new THREE.Mesh(headGeometry, headMaterial);
+        head.position.z = 1;
+        annotationGroup.add(head);
+
+        // Add magnitude label as small colored circle
+        const labelGeometry = new THREE.CircleGeometry(baseSize * 0.4, 16);
+        const labelMaterial = new THREE.MeshBasicMaterial({ color: 0x0066ff });
+        const label = new THREE.Mesh(labelGeometry, labelMaterial);
+        label.position.set(x + dx * 0.5, y + dy * 0.5, 2);
+        annotationGroup.add(label);
+      }
+    });
+
+    // Add annotation group to mesh group
+    meshGroupRef.current.add(annotationGroup);
+
+    // Re-render scene
+    if (sceneRef.current && cameraRef.current && rendererRef.current) {
+      rendererRef.current.render(sceneRef.current, cameraRef.current);
+    }
+  }, [annotations, mesh]);
+
   if (webglError) {
     return (
       <div className="w-full h-full bg-white border border-gray-200 rounded-lg flex items-center justify-center p-4">
@@ -486,12 +749,54 @@ export function MeshVisualization({ mesh }: MeshVisualizationProps) {
   };
 
   return (
-    <div>
+    <div className="relative w-full h-full">
       <div
         ref={containerRef}
-        className="w-full h-full bg-white border border-gray-200 rounded-lg"
+        className="w-full h-full bg-white border border-gray-200 rounded-lg touch-none select-none"
+        style={{ touchAction: 'none', userSelect: 'none' }}
         data-testid="mesh-visualization-container"
+        tabIndex={0}
+        onFocus={(e) => {
+          // Ensure canvas can receive keyboard events
+          const canvas = e.currentTarget.querySelector('canvas');
+          if (canvas) {
+            (canvas as HTMLCanvasElement).focus();
+          }
+        }}
+        onMouseEnter={() => setShowControlsGuide(true)}
+        onMouseLeave={() => setShowControlsGuide(false)}
+        onWheel={() => setShowControlsGuide(false)}
       />
+
+      {/* Controls Guide Overlay */}
+      {showControlsGuide && (
+        <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg p-3 text-xs text-gray-700 select-none pointer-events-none transition-opacity duration-300">
+          <div className="font-semibold mb-2 text-gray-900">Mesh Controls</div>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded border text-[10px] font-mono">Drag</span>
+              <span>Pan view</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded border text-[10px] font-mono">Scroll</span>
+              <span>Zoom in/out</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded border text-[10px] font-mono">Click</span>
+              <span>Select node</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded border text-[10px] font-mono">Ctrl+Click</span>
+              <span>Multi-select</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="bg-gray-100 px-1.5 py-0.5 rounded border text-[10px] font-mono">Right-click</span>
+              <span>Node options</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <BoundaryConditionMenu
         selectedNodes={selectedNodes}
         onBCSelect={handleBCSelect}
