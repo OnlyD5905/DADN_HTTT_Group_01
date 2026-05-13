@@ -1,0 +1,15 @@
+import pandas as pd
+
+# Tạo danh sách linh kiện thép/nhôm phổ biến
+materials_data = {
+    'material_id': ['M01', 'M02', 'M03', 'M04', 'M05'],
+    'material_name': ['Steel SS400', 'Steel A36', 'Stainless Steel 304', 'Aluminum 6061', 'Titanium Grade 5'],
+    'young_modulus': [2.0e11, 2.0e11, 1.93e11, 6.89e10, 1.14e11], # Đơn vị: Pa
+    'poisson_ratio': [0.3, 0.26, 0.29, 0.33, 0.34],
+    'yield_strength': [245e6, 250e6, 215e6, 276e6, 880e6], # Giới hạn bền (Pa)
+    'price_score': [10, 12, 45, 30, 150] # Giá tham khảo
+}
+
+df_materials = pd.DataFrame(materials_data)
+df_materials.to_csv('materials.csv', index=False)
+print("Đã tạo xong file materials.csv!")

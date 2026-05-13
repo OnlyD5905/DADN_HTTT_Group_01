@@ -1,94 +1,72 @@
-from typing import Dict, List, Literal, Optional
+from fastapi import APIRouter, HTTPException, status
+from app.schemas.project import SolveRequest, SolveResult
+from app.core.fea_engine import FEAEngine
+import numpy as np
+import logging
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
+# Khởi tạo logger để theo dõi quá trình tính toán
+logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/solver", tags=["solver"])
+router = APIRouter()
 
+@router.post("/solve", response_model=SolveResult)
+async def solve_problem(payload: SolveRequest):
+    """
+    Endpoint tiếp nhận thông số từ Frontend, thực hiện chia lưới (Meshing) 
+     và giải bài toán Phần tử hữu hạn (FEA) để trả về chuyển vị.
+    """
+    try:
+        logger.info(f"Bắt đầu xử lý bài toán FEA cho dự án: {payload.geometry.elementType}")
 
-class GeometryParams(BaseModel):
-    d1: float = Field(gt=0)
-    d2: float = Field(gt=0)
-    elementType: Literal["D2QU4N", "D2TR3N"]
+        # 1. Khởi tạo lõi FEA với các thông số từ Request
+        # Chú ý: Đảm bảo class FEAEngine trong app.core.fea_engine đã được cập nhật Sparse Matrix
+        engine = FEAEngine(
+            geometry=payload.geometry,
+            mesh_cfg=payload.mesh,
+            physical=payload.physical,
+            loads=payload.loads
+        )
 
+        # 2. Thực hiện giải thuật tính toán
+        # engine.solve() sẽ trả về dict chứa: nodes, elements, displacements, max_displacement
+        result = engine.solve(
+            plane_state=payload.physical.planeState, 
+            bc_type=payload.geometry.bcType
+        )
 
-class MeshConfig(BaseModel):
-    p: int = Field(ge=1)
-    m: int = Field(ge=1)
+        # 3. Chuẩn bị dữ liệu trả về theo định dạng SolveResult Schema
+        # Convert dictionary displacements sang format string key cho JSON response
+        formatted_displacements = {
+            str(i): d for i, d in enumerate(result["displacements"])
+        }
 
+        logger.info("Tính toán hoàn tất thành công.")
 
-class PhysicalProperties(BaseModel):
-    E: float = Field(gt=0)
-    nu: float = Field(ge=0, lt=0.5)
+        return SolveResult(
+            job_id=f"job_{np.random.randint(1000, 9999)}",
+            status="completed",
+            displacements=formatted_displacements,
+            max_displacement=result["max_displacement"],
+            warnings=[]
+        )
 
+    except ValueError as ve:
+        # Requirement 3: Bắt các lỗi toán học (Ma trận suy biến, thiếu ngàm...)
+        logger.error(f"Lỗi logic toán học: {str(ve)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi dữ liệu đầu vào hoặc hệ thống cơ học: {str(ve)}"
+        )
 
-class LoadParams(BaseModel):
-    loadVal: float
-    loadDirection: Literal["x", "y"]
+    except Exception as e:
+        # Bắt các lỗi hệ thống không xác định khác (Runtime, OOM...)
+        logger.error(f"Lỗi hệ thống nghiêm trọng: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Đã xảy ra lỗi không xác định trên máy chủ: {str(e)}"
+        )
 
-
-class SolveRequest(BaseModel):
-    geometry: GeometryParams
-    mesh: MeshConfig
-    physical: PhysicalProperties
-    loads: LoadParams
-    scaleFactor: float = Field(gt=0)
-
-
-class SolveResponse(BaseModel):
-    job_id: str
-    status: Literal["pending", "running", "completed", "failed"]
-    estimated_duration_seconds: Optional[float] = None
-    _links: Dict[str, str]
-
-
-class SolveResult(BaseModel):
-    job_id: str
-    status: Literal["pending", "running", "completed", "failed"]
-    completed_at: Optional[str] = None
-    computation_time_seconds: Optional[float] = None
-    displacements: Dict[str, List[float]] = {}
-    stresses: Dict[str, List[float]] = {}
-    reactions: Dict[str, List[float]] = {}
-    max_displacement: Optional[float] = None
-    warnings: List[str] = []
-
-
-@router.post("/solve", response_model=SolveResponse, status_code=202)
-async def solve(payload: SolveRequest):
-    return SolveResponse(
-        job_id="solv_demo_001",
-        status="pending",
-        estimated_duration_seconds=2.0,
-        _links={
-            "self": "/api/v1/solver/jobs/solv_demo_001",
-            "result": "/api/v1/solver/jobs/solv_demo_001/result",
-        },
-    )
-
-
-@router.get("/jobs/{job_id}", response_model=SolveResponse)
-async def job_status(job_id: str):
-    return SolveResponse(
-        job_id=job_id,
-        status="completed",
-        _links={
-            "self": f"/api/v1/solver/jobs/{job_id}",
-            "result": f"/api/v1/solver/jobs/{job_id}/result",
-        },
-    )
-
-
-@router.get("/jobs/{job_id}/result", response_model=SolveResult)
-async def job_result(job_id: str):
-    return SolveResult(
-        job_id=job_id,
-        status="completed",
-        completed_at="2026-03-21T00:00:00Z",
-        computation_time_seconds=1.23,
-        displacements={"0": [0.0, 0.0], "1": [0.0, -0.0012]},
-        stresses={"0": [0.0, 0.0, 0.0]},
-        reactions={"0": [0.0, 10.0]},
-        max_displacement=0.0012,
-        warnings=[],
-    )
+@router.get("/health")
+async def solver_health():
+    """Kiểm tra trạng thái sẵn sàng của module Solver"""
+    return {"status": "online", "engine": "FEAEngine_v2_Sparse"}

@@ -35,3 +35,17 @@ yarn-error.log*
 .sisyphus/
 !.sisyphus/plans/  # Keep plan templates
 !.sisyphus/notepads/  # Keep notepad templates
+
+
+# Thư mục môi trường ảo
+venv/
+.venv/
+env/
+
+# Các file sinh ra khi chạy code
+Meshingcode/mesh_result.png
+__pycache__/
+*.pyc
+
+# Folder AI dataset nếu ông chưa muốn push lên
+ai/dataset/

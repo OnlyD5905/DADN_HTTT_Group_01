@@ -1,0 +1,33 @@
+import numpy as np
+import pandas as pd
+
+def generate_training_data(n_samples=500):
+    data = []
+    for _ in range(n_samples):
+        # Giả lập các biến đầu vào ngẫu nhiên
+        L = np.random.uniform(5, 15)      # Chiều dài d1
+        h = np.random.uniform(0.5, 2)     # Chiều cao d2
+        P = np.random.uniform(5000, 50000) # Lực kéo
+        
+        # Chọn ngẫu nhiên một vật liệu từ bảng trên
+        idx = np.random.randint(0, 5)
+        E = materials_data['young_modulus'][idx]
+        yield_s = materials_data['yield_strength'][idx]
+        
+        # Tính ứng suất tối đa (Công thức đơn giản cho dầm Cantilever: sigma = My/I)
+        # Đây là logic để gán nhãn cho AI học
+        I = (1 * h**3) / 12
+        max_moment = P * L
+        max_stress = (max_moment * (h/2)) / I
+        
+        # Gán nhãn (Label): 1 là An toàn, 0 là Nguy hiểm
+        # Nếu ứng suất thực tế < giới hạn bền thì an toàn
+        label = 1 if max_stress < yield_s else 0
+        
+        data.append([L, h, P, E, max_stress, label])
+
+    df = pd.DataFrame(data, columns=['L', 'h', 'P', 'E', 'max_stress', 'label'])
+    df.to_csv('simulation_data.csv', index=False)
+    print(f"Đã tạo xong {n_samples} mẫu dữ liệu huấn luyện!")
+
+generate_training_data()
