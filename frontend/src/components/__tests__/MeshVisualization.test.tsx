@@ -56,14 +56,20 @@ vi.mock('three', () => {
     }),
     BufferGeometry: vi.fn(function (this: any) {
       const attributes: Record<string, any> = {}
-      this.setAttribute = vi.fn(function (this: any, name, attr) {
+      this.setAttribute = vi.fn(function (this: any, name: string, attr: any) {
         attributes[name] = attr
       })
-      this.getAttribute = vi.fn(function (this: any, name) {
+      this.getAttribute = vi.fn(function (this: any, name: string) {
         return attributes[name]
       })
+      this.computeVertexNormals = vi.fn()
     }),
-    BufferAttribute: vi.fn(function (this: any, array, size) {
+    BufferAttribute: vi.fn(function (this: any, array: any, size: number) {
+      this.array = array
+      this.itemSize = size
+      this.needsUpdate = false
+    }),
+    Float32BufferAttribute: vi.fn(function (this: any, array: any, size: number) {
       this.array = array
       this.itemSize = size
       this.needsUpdate = false
@@ -84,33 +90,71 @@ vi.mock('three', () => {
       this.geometry = geometry
       this.material = material
     }),
-    Color: vi.fn(function (this: any, hex) {
+    Color: vi.fn(function (this: any, hex: any) {
       this.hex = hex
     }),
     Box3: vi.fn(function (this: any) {
       this.setFromObject = vi.fn(function (this: any) {
         return this
       })
-      this.getCenter = vi.fn(function (this: any, target) {
+      this.expandByPoint = vi.fn(function (this: any) {
+        return this
+      })
+      this.getCenter = vi.fn(function (this: any, target: any) {
         target.x = 50
         target.y = 50
         target.z = 0
         return target
       })
-      this.getSize = vi.fn(function (this: any, target) {
+      this.getSize = vi.fn(function (this: any, target: any) {
         target.x = 100
         target.y = 100
         target.z = 0
         return target
       })
     }),
+    MOUSE: { PAN: 0, ROTATE: 1, DOLLY: 2 },
+    MeshBasicMaterial: vi.fn(function (this: any, _params?: any) {
+      this.vertexColors = _params?.vertexColors ?? false
+      this.side = _params?.side ?? 0
+      this.transparent = _params?.transparent ?? false
+      this.opacity = _params?.opacity ?? 1
+    }),
+    Shape: vi.fn(function (this: any) {
+      this.moveTo = vi.fn()
+      this.lineTo = vi.fn()
+      this.closePath = vi.fn()
+    }),
+    ShapeGeometry: vi.fn(function (this: any, _shape?: any) {
+      this.shape = _shape
+    }),
+    Line: vi.fn(function (this: any, geometry?: any, material?: any) {
+      this.geometry = geometry
+      this.material = material
+    }),
+    CircleGeometry: vi.fn(function (this: any, _radius?: number, _segments?: number) {
+      this.radius = _radius
+      this.segments = _segments
+    }),
+    Mesh: vi.fn(function (this: any, geometry?: any, material?: any) {
+      this.geometry = geometry
+      this.material = material
+      this.position = {
+        set: vi.fn(),
+        setX: vi.fn(),
+        setY: vi.fn(),
+        setZ: vi.fn(),
+        copy: vi.fn(),
+      }
+      this.add = vi.fn()
+    }),
   }
 })
 
 /**
- * Mock OrbitControls
+ * Mock OrbitControls (matches the import path used in MeshVisualization.tsx)
  */
-vi.mock('three-orbitcontrols-ts', () => ({
+vi.mock('three/addons/controls/OrbitControls.js', () => ({
   OrbitControls: vi.fn(function (this: any) {
     this.enableDamping = false
     this.dampingFactor = 0
@@ -121,11 +165,14 @@ vi.mock('three-orbitcontrols-ts', () => ({
     this.autoRotateSpeed = 0
     this.rotateSpeed = 0
     this.zoomSpeed = 0
+    this.minZoom = 0.5
+    this.maxZoom = 10
+    this.mouseButtons = {}
     this.target = {
       x: 0,
       y: 0,
       z: 0,
-      copy: vi.fn(function (this: any, other) {
+      copy: vi.fn(function (this: any, other: any) {
         this.x = other.x
         this.y = other.y
         this.z = other.z
@@ -134,6 +181,9 @@ vi.mock('three-orbitcontrols-ts', () => ({
     }
     this.object = {
       zoom: 1,
+      position: {
+        clone: vi.fn(() => ({ x: 0, y: 0, z: 10 })),
+      },
     }
     this.update = vi.fn()
     this.dispose = vi.fn()

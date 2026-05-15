@@ -99,10 +99,38 @@ class FEAEngine:
 
         U_global = np.zeros(2 * num_nodes)
         U_global[free_dofs] = U_f
-        
+
+        # Tính toán ứng suất tại tâm mỗi phần tử
+        stresses = []
+        for el in EL:
+            node_coords = NL[el, :]
+            # Tính B tại tâm phần tử (xi=0, eta=0)
+            xi, eta = 0.0, 0.0
+            dN_dxi = 0.25 * np.array([[-(1-eta), (1-eta), (1+eta), -(1+eta)], [-(1-xi), -(1+xi), (1+xi), (1-xi)]])
+            J = dN_dxi @ node_coords
+            detJ = np.linalg.det(J)
+            if abs(detJ) < 1e-12:
+                stresses.append([0.0, 0.0, 0.0])
+                continue
+            invJ = np.linalg.inv(J)
+            dN_dx = invJ @ dN_dxi
+            B = np.zeros((3, 8))
+            B[0, 0::2], B[1, 1::2] = dN_dx[0, :], dN_dx[1, :]
+            B[2, 0::2], B[2, 1::2] = dN_dx[1, :], dN_dx[0, :]
+
+            dofs = []
+            for node in el:
+                dofs.extend([2*node, 2*node+1])
+            u_e = U_global[dofs]
+
+            epsilon = B @ u_e
+            sigma = C @ epsilon
+            stresses.append(sigma.tolist())
+
         return {
             "displacements": U_global.reshape(-1, 2).tolist(),
             "max_displacement": float(np.max(np.abs(U_global))),
             "nodes": NL.tolist(),
-            "elements": EL.tolist()
+            "elements": EL.tolist(),
+            "stresses": stresses
         }

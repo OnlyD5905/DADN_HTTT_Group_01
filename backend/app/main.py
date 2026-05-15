@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,11 +8,20 @@ from .api.v1.router import api_router
 from .db.session import engine
 from .models import Base
 
+logger = logging.getLogger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Initialize database tables (optional — solver works without DB)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as exc:
+        logger.warning(
+            "Database connection failed (%s). Skipping table creation. "
+            "Project CRUD endpoints will not work, but the solver endpoint remains available.",
+            exc,
+        )
     yield
 
 
