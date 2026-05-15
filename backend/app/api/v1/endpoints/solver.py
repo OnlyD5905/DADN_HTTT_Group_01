@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
-from app.schemas.project import SolveRequest, SolveResult
-from app.core.fea_engine import FEAEngine
+from ....schemas.project import SolveRequest, SolveResult
+from ....core.fea_engine import FEAEngine
 import numpy as np
 import logging
 
