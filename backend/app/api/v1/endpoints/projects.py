@@ -1,31 +1,53 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from typing import List
+import json
+import time
 
 from ....db.session import get_db
 from .... import models
 from .... import schemas
+from ....schemas.solver import BoundaryConditions
+from ....core.fea_engine import FEAEngine
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-# ----------------- PROJECTS -----------------
+
+# ----------------- PROJECTS CRUD -----------------
+
 @router.post("/", response_model=schemas.Project, status_code=status.HTTP_201_CREATED)
 async def create_project(project: schemas.ProjectCreate, db: AsyncSession = Depends(get_db)):
+    """Tạo mới một bài toán (project)."""
     db_project = models.Project(**project.model_dump())
     db.add(db_project)
     await db.commit()
-    await db.refresh(db_project)
-    return db_project
+    
+    # Re-fetch with relationships to avoid lazy-loading error during serialization
+    result = await db.execute(
+        select(models.Project)
+        .options(
+            selectinload(models.Project.nodes),
+            selectinload(models.Project.elements),
+            selectinload(models.Project.materials),
+            selectinload(models.Project.sections)
+        )
+        .where(models.Project.id == db_project.id)
+    )
+    return result.scalars().first()
+
 
 @router.get("/", response_model=List[schemas.Project])
 async def read_projects(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
+    """Lấy danh sách tất cả các bài toán."""
     result = await db.execute(select(models.Project).offset(skip).limit(limit))
     return result.scalars().all()
 
+
 @router.get("/{project_id}", response_model=schemas.Project)
 async def read_project(project_id: int, db: AsyncSession = Depends(get_db)):
-    from sqlalchemy.orm import selectinload
+    """Lấy toàn bộ dữ liệu của một bài toán (bao gồm Nodes, Elements, ...)."""
     result = await db.execute(
         select(models.Project)
         .options(
@@ -41,7 +63,56 @@ async def read_project(project_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
+
+# ----------------- BOUNDARY CONDITIONS -----------------
+
+@router.put("/{project_id}/boundary-conditions", response_model=schemas.Project)
+async def set_boundary_conditions(
+    project_id: int,
+    bc: BoundaryConditions,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Nhận cấu trúc BoundaryConditions từ Frontend và lưu vào DB.
+    Bao gồm: kích thước hình học, thông số lưới, loại phần tử,
+    điều kiện biên, trạng thái phẳng, tải trọng và thông số vật liệu.
+    Đây là bước BẮT BUỘC trước khi gọi POST /{project_id}/solve.
+    """
+    result = await db.execute(select(models.Project).where(models.Project.id == project_id))
+    project = result.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project.d1           = bc.d1
+    project.d2           = bc.d2
+    project.p            = bc.p
+    project.m            = bc.m
+    project.element_type = bc.element_type
+    project.bc_type      = bc.bc_type
+    project.plane_state  = bc.plane_state
+    project.load_val     = bc.load_val
+    project.load_dir     = bc.load_dir
+    project.E            = bc.E
+    project.nu           = bc.nu
+
+    await db.commit()
+    
+    # Re-fetch with relationships
+    result = await db.execute(
+        select(models.Project)
+        .options(
+            selectinload(models.Project.nodes),
+            selectinload(models.Project.elements),
+            selectinload(models.Project.materials),
+            selectinload(models.Project.sections)
+        )
+        .where(models.Project.id == project.id)
+    )
+    return result.scalars().first()
+
+
 # ----------------- NODES -----------------
+
 @router.post("/{project_id}/nodes", response_model=List[schemas.Node], status_code=status.HTTP_201_CREATED)
 async def create_nodes(project_id: int, nodes: List[schemas.NodeCreate], db: AsyncSession = Depends(get_db)):
     db_nodes = []
@@ -54,7 +125,9 @@ async def create_nodes(project_id: int, nodes: List[schemas.NodeCreate], db: Asy
         await db.refresh(n)
     return db_nodes
 
+
 # ----------------- ELEMENTS -----------------
+
 @router.post("/{project_id}/elements", response_model=List[schemas.Element], status_code=status.HTTP_201_CREATED)
 async def create_elements(project_id: int, elements: List[schemas.ElementCreate], db: AsyncSession = Depends(get_db)):
     db_elements = []
@@ -67,7 +140,9 @@ async def create_elements(project_id: int, elements: List[schemas.ElementCreate]
         await db.refresh(e)
     return db_elements
 
+
 # ----------------- MATERIALS -----------------
+
 @router.post("/{project_id}/materials", response_model=List[schemas.Material], status_code=status.HTTP_201_CREATED)
 async def create_materials(project_id: int, materials: List[schemas.MaterialCreate], db: AsyncSession = Depends(get_db)):
     db_materials = []
@@ -80,7 +155,9 @@ async def create_materials(project_id: int, materials: List[schemas.MaterialCrea
         await db.refresh(m)
     return db_materials
 
+
 # ----------------- SECTIONS -----------------
+
 @router.post("/{project_id}/sections", response_model=List[schemas.Section], status_code=status.HTTP_201_CREATED)
 async def create_sections(project_id: int, sections: List[schemas.SectionCreate], db: AsyncSession = Depends(get_db)):
     db_sections = []
@@ -93,53 +170,73 @@ async def create_sections(project_id: int, sections: List[schemas.SectionCreate]
         await db.refresh(s)
     return db_sections
 
+
 # ----------------- SOLVER INTEGRATION -----------------
+
 @router.post("/{project_id}/solve")
 async def solve_project(project_id: int, db: AsyncSession = Depends(get_db)):
-    from sqlalchemy.orm import selectinload
-    # 1. Lấy dữ liệu bài toán từ DB
-    result = await db.execute(
-        select(models.Project)
-        .options(
-            selectinload(models.Project.nodes),
-            selectinload(models.Project.elements),
-            selectinload(models.Project.materials),
-            selectinload(models.Project.sections)
-        )
-        .where(models.Project.id == project_id)
-    )
+    """
+    Đọc BoundaryConditions đã lưu trong DB, chạy lõi FEA,
+    rồi ghi kết quả displacements ngược lại vào bảng projects.
+    """
+    start_time = time.perf_counter()
+    
+    result = await db.execute(select(models.Project).where(models.Project.id == project_id))
     project = result.scalars().first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # 2. Xử lý dữ liệu định dạng JSON chuẩn bị đưa vào Lõi sinh (Algorithm Core / Solver)
-    # Ví dụ: chuyển Object Node thành dạng dict để pass vào hàm FEA solver.
-    nodes_data = [{"id": n.id, "x": n.x, "y": n.y, "z": n.z} for n in project.nodes]
-    elements_data = [
-        {
-            "id": e.id, 
-            "start_node": e.start_node_id, 
-            "end_node": e.end_node_id, 
-            "material_id": e.material_id, 
-            "section_id": e.section_id
-        } 
-        for e in project.elements
-    ]
+    # Kiểm tra đã có đủ thông số BCs chưa
+    required_fields = ["d1", "d2", "p", "m", "element_type", "bc_type", "E", "nu"]
+    missing = [f for f in required_fields if getattr(project, f) is None]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Thieu thong so: {missing}. Hay goi PUT /boundary-conditions truoc."
+        )
 
-    # TODO: Gọi hàm Lõi cấu trúc (FEA Algorithm Core) ở đây
-    # Ví dụ: results = core_solver.run(nodes_data, elements_data)
+    # Tạo mock param objects tương thích với FEAEngine
+    class _P:
+        def __init__(self, **kw):
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+    try:
+        engine = FEAEngine(
+            geometry=_P(d1=project.d1, d2=project.d2, elementType=project.element_type),
+            mesh_cfg=_P(p=project.p, m=project.m),
+            physical=_P(E=project.E, nu=project.nu),
+            loads=_P(loadVal=project.load_val or 0.0, loadDirection=project.load_dir or "y"),
+        )
+        fea_result = engine.solve(
+            plane_state=project.plane_state or "PLANE_STRESS",
+            bc_type=project.bc_type or "FIXED",
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Loi he thong: {str(e)}")
+
+    computation_time = time.perf_counter() - start_time
     
-    # 3. MOCK KẾT QUẢ TRẢ VỀ CHO FRONTEND
+    # Ghi kết quả ngược lại vào DB
+    formatted = {str(i): d for i, d in enumerate(fea_result["displacements"])}
+    project.displacements    = json.dumps(formatted)
+    project.max_displacement = fea_result["max_displacement"]
+    await db.commit()
+
+    # Format stresses if available
+    formatted_stresses = None
+    if fea_result.get("stresses"):
+        formatted_stresses = {str(i): s for i, s in enumerate(fea_result["stresses"])}
+
     return {
         "status": "success",
-        "message": "Data retrieved and sent to solver successfully",
         "project_id": project.id,
-        "input_summary": {
-            "node_count": len(nodes_data),
-            "element_count": len(elements_data)
-        },
-        "displacements": {
-            "node_1": {"dx": 0.01, "dy": -0.05, "dz": 0.0},
-            "node_2": {"dx": 0.0, "dy": 0.0, "dz": 0.0}
-        }
+        "computation_time_seconds": round(computation_time, 3),
+        "max_displacement": fea_result["max_displacement"],
+        "node_count": len(fea_result["nodes"]),
+        "element_count": len(fea_result["elements"]),
+        "displacements": formatted,
+        "stresses": formatted_stresses,
     }
