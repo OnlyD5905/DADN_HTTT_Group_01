@@ -3,7 +3,7 @@ from .node import Node, NodeCreate, NodeUpdate
 from .material import Material, MaterialCreate, MaterialUpdate
 from .section import Section, SectionCreate, SectionUpdate
 from .element import Element, ElementCreate, ElementUpdate
-from .solver import GeometryRequest, MeshRequest, PhysicalRequest, LoadsRequest, SolveRequest, SolveResult
+from .solver import GeometryRequest, MeshRequest, PhysicalRequest, LoadsRequest, SolveRequest, SolveResult, BoundaryConditions
 
 __all__ = [
     "Project", "ProjectCreate", "ProjectUpdate",
@@ -11,5 +11,5 @@ __all__ = [
     "Material", "MaterialCreate", "MaterialUpdate",
     "Section", "SectionCreate", "SectionUpdate",
     "Element", "ElementCreate", "ElementUpdate",
-    "GeometryRequest", "MeshRequest", "PhysicalRequest", "LoadsRequest", "SolveRequest", "SolveResult",
+    "GeometryRequest", "MeshRequest", "PhysicalRequest", "LoadsRequest", "SolveRequest", "SolveResult", "BoundaryConditions",
 ]
