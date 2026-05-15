@@ -242,6 +242,10 @@ function FEASolver() {
 
     try {
       const result = await submitSolve(formData);
+      console.log('API result:', result);
+      console.log('Displacements:', result.displacements);
+      console.log('Nodes:', result.nodes);
+      console.log('Elements:', result.elements);
       navigate('/results', {
         state: {
           jobId: result.job_id,

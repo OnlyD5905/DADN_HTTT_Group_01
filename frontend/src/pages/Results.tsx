@@ -133,6 +133,11 @@ function computeNodalStresses(
 function Results() {
   const location = useLocation();
   const state = (location.state ?? {}) as ResultsState;
+  
+  // Debug logging
+  console.log('Results page state:', state);
+  console.log('Has displacements:', !!state.displacements);
+  console.log('Displacements keys:', state.displacements ? Object.keys(state.displacements).length : 0);
   const [matrixPage, setMatrixPage] = useState<MatrixPage>('displacements');
   const [pageIndex, setPageIndex] = useState(0);
   const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>('displacement');

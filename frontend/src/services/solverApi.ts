@@ -58,12 +58,16 @@ export async function submitSolve(input: FEASolverInput): Promise<SolveResult> {
     scaleFactor: input.scaleFactor,
   };
 
+  console.log('API request payload:', payload);
+  
   const response = await fetch(`${API_BASE}/solver/solve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
 
+  console.log('API response status:', response.status);
+  
   if (!response.ok) {
     let detail: string | undefined;
     try {
@@ -79,7 +83,9 @@ export async function submitSolve(input: FEASolverInput): Promise<SolveResult> {
     );
   }
 
-  return response.json() as Promise<SolveResult>;
+  const data = await response.json();
+  console.log('API response data:', data);
+  return data as SolveResult;
 }
 
 export async function fetchSolveResult(_jobId: string): Promise<SolveResult> {
