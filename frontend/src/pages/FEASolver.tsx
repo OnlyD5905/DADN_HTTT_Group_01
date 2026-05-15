@@ -68,6 +68,7 @@ function FEASolver() {
       d1: 1.0,
       d2: 1.0,
       elementType: 'D2QU4N',
+      bcType: 'FIXED',
     },
     mesh: {
       p: 4,
@@ -76,6 +77,7 @@ function FEASolver() {
     physical: {
       E: 210e9, // 210 GPa (Steel)
       nu: 0.3,
+      planeState: 'PLANE_STRESS',
     },
     loads: {
       loadVal: 10000,
@@ -196,9 +198,9 @@ function FEASolver() {
   // Reset form to defaults
   const handleReset = () => {
     setFormData({
-      geometry: { d1: 1.0, d2: 1.0, elementType: 'D2QU4N' },
+      geometry: { d1: 1.0, d2: 1.0, elementType: 'D2QU4N', bcType: 'FIXED' },
       mesh: { p: 4, m: 4 },
-      physical: { E: 210e9, nu: 0.3 },
+      physical: { E: 210e9, nu: 0.3, planeState: 'PLANE_STRESS' },
       loads: { loadVal: 10000, loadDirection: 'x' },
       scaleFactor: 100,
     });
@@ -239,23 +241,34 @@ function FEASolver() {
     setSolveResult(null);
 
     try {
-      const response = await submitSolve(formData);
+      const result = await submitSolve(formData);
+      console.log('API result:', result);
+      console.log('Displacements:', result.displacements);
+      console.log('Nodes:', result.nodes);
+      console.log('Elements:', result.elements);
       navigate('/results', {
         state: {
-          jobId: response.job_id,
-          status: response.status,
-          computationTimeSeconds: undefined,
-          maxDisplacement: undefined,
-          warnings: [],
-          displacements: {},
-          stresses: {},
-          reactions: {},
+          jobId: result.job_id,
+          status: result.status,
+          computationTimeSeconds: result.computation_time_seconds,
+          maxDisplacement: result.max_displacement,
+          warnings: result.warnings ?? [],
+          displacements: result.displacements,
+          stresses: result.stresses,
+          reactions: result.reactions,
+          nodes: result.nodes,
+          elements: result.elements,
+          geometry: formData.geometry,
+          mesh: formData.mesh,
+          loads: formData.loads,
+          scaleFactor: formData.scaleFactor,
         },
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.';
       setSolveResult({
         success: false,
-        message: 'Solver API request failed. Please check the backend connection.',
+        message,
       });
     } finally {
       setIsSolving(false);

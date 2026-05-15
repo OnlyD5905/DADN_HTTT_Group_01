@@ -4,6 +4,7 @@ export interface GeometryParams {
   d1: number; // Length in x direction
   d2: number; // Height in y direction
   elementType: 'D2QU4N' | 'D2TR3N';
+  bcType?: 'FIXED' | 'ROLLER';
 }
 
 export interface MeshConfig {
@@ -14,6 +15,7 @@ export interface MeshConfig {
 export interface PhysicalProperties {
   E: number;  // Young's modulus (Pa)
   nu: number; // Poisson's ratio (dimensionless)
+  planeState?: 'PLANE_STRESS' | 'PLANE_STRAIN';
 }
 
 export interface LoadParams {

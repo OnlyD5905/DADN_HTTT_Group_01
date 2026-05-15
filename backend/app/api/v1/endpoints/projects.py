@@ -4,11 +4,12 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from typing import List
 import json
+import time
 
 from ....db.session import get_db
 from .... import models
 from .... import schemas
-from ....schemas.project import BoundaryConditions
+from ....schemas.solver import BoundaryConditions
 from ....core.fea_engine import FEAEngine
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -178,6 +179,8 @@ async def solve_project(project_id: int, db: AsyncSession = Depends(get_db)):
     Đọc BoundaryConditions đã lưu trong DB, chạy lõi FEA,
     rồi ghi kết quả displacements ngược lại vào bảng projects.
     """
+    start_time = time.perf_counter()
+    
     result = await db.execute(select(models.Project).where(models.Project.id == project_id))
     project = result.scalars().first()
     if not project:
@@ -214,17 +217,26 @@ async def solve_project(project_id: int, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Loi he thong: {str(e)}")
 
+    computation_time = time.perf_counter() - start_time
+    
     # Ghi kết quả ngược lại vào DB
     formatted = {str(i): d for i, d in enumerate(fea_result["displacements"])}
     project.displacements    = json.dumps(formatted)
     project.max_displacement = fea_result["max_displacement"]
     await db.commit()
 
+    # Format stresses if available
+    formatted_stresses = None
+    if fea_result.get("stresses"):
+        formatted_stresses = {str(i): s for i, s in enumerate(fea_result["stresses"])}
+
     return {
         "status": "success",
         "project_id": project.id,
+        "computation_time_seconds": round(computation_time, 3),
         "max_displacement": fea_result["max_displacement"],
         "node_count": len(fea_result["nodes"]),
         "element_count": len(fea_result["elements"]),
         "displacements": formatted,
+        "stresses": formatted_stresses,
     }
